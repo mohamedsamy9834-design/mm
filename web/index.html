@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mada Remote Web</title>
+<style>
+:root{color-scheme:dark;--bg:#0c1119;--panel:#151e2b;--muted:#9ba9bb;--line:#263447;--blue:#3988d8;--green:#35b58a}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 20% 0,#1b2a40,var(--bg) 45%);color:#edf3fa;font:15px "Segoe UI",Arial,sans-serif;min-height:100vh}
+header{padding:22px 5vw;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.brand{font-size:20px;font-weight:800;letter-spacing:1.5px}.brand span{color:#66b8ff}
+main{max-width:1100px;margin:36px auto;padding:0 20px}.panel{background:rgba(21,30,43,.96);border:1px solid var(--line);border-radius:16px;padding:24px;box-shadow:0 18px 50px #0005}
+h1{margin:0 0 8px;font-size:27px}.muted{color:var(--muted)}.connect{max-width:470px;margin:30px auto}
+label{display:block;margin:18px 0 7px;color:#c8d4e2}input{width:100%;padding:13px 14px;border-radius:9px;border:1px solid #34475e;background:#0e1622;color:white;font-size:16px;outline:none}
+button{border:0;border-radius:9px;padding:12px 18px;background:var(--blue);color:white;font-weight:700;cursor:pointer}button:disabled{opacity:.45;cursor:not-allowed}.primary{width:100%;margin-top:20px}.danger{background:#983e4c}.toolbar{display:flex;gap:10px;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap}
+#viewerPanel{display:none}.screen-wrap{background:#05080d;border:1px solid var(--line);border-radius:12px;overflow:auto;text-align:center;min-height:280px;display:flex;align-items:center;justify-content:center}
+canvas{display:block;max-width:100%;height:auto;cursor:crosshair}.status{font-size:13px;color:var(--muted)}.pill{border:1px solid #2e765f;color:#72e0b7;border-radius:30px;padding:6px 11px;font-size:12px}
+.notice{font-size:13px;line-height:1.5;color:#ffcf8d;margin-top:18px}
+@media(max-width:600px){header{padding:18px}.panel{padding:18px}main{margin:20px auto}}
+</style>
+</head>
+<body>
+<header><div class="brand">MADA <span>REMOTE WEB</span></div><div class="muted">Browser Controller</div></header>
+<main>
+<section class="panel connect" id="connectPanel">
+<h1>Connect to a computer</h1>
+<p class="muted">Enter the temporary pairing code shown in the Mada Host window.</p>
+<label for="code">6-digit pairing code</label>
+<input id="code" inputmode="numeric" maxlength="6" placeholder="000000" autocomplete="one-time-code">
+<button class="primary" id="connectBtn">REQUEST CONNECTION</button>
+<p class="notice">The person at the Host computer must approve your request. Use only on a trusted private network. This prototype is not encrypted and must not be exposed to the public Internet.</p>
+</section>
+<section class="panel" id="viewerPanel">
+<div class="toolbar"><div><strong>Remote screen</strong> <span class="pill">SESSION CONNECTED</span><div class="status" id="status">Waiting for screen…</div></div><button class="danger" id="disconnectBtn">DISCONNECT</button></div>
+<div class="screen-wrap"><canvas id="screen" width="1280" height="720"></canvas></div>
+<p class="muted">Click the screen to control the remote pointer. Keyboard input is sent while this page is focused. Press Disconnect to end your side of the session.</p>
+</section>
+</main>
+<script>
+(function(){
+const codeEl=document.getElementById('code'), connectBtn=document.getElementById('connectBtn');
+const connectPanel=document.getElementById('connectPanel'), viewerPanel=document.getElementById('viewerPanel');
+const canvas=document.getElementById('screen'), ctx=canvas.getContext('2d'), statusEl=document.getElementById('status');
+let ws=null, connected=false, lastMove=0;
+function setStatus(s){statusEl.textContent=s;}
+function disconnect(){
+ connected=false;
+ if(ws){try{ws.close()}catch(e){} ws=null;}
+ viewerPanel.style.display='none'; connectPanel.style.display='block';
+}
+connectBtn.addEventListener('click',function(){
+ const code=codeEl.value.trim();
+ if(!/^\d{6}$/.test(code)){alert('Enter the 6-digit code displayed by the Host.');return;}
+ const url='ws://'+window.location.host+'/ws?code='+encodeURIComponent(code);
+ connectBtn.disabled=true; connectBtn.textContent='REQUESTING…';
+ ws=new WebSocket(url); ws.binaryType='blob';
+ ws.onopen=function(){connected=true;connectPanel.style.display='none';viewerPanel.style.display='block';setStatus('Approved. Waiting for screen frames…');};
+ ws.onmessage=function(ev){
+   if(typeof ev.data==='string'){return;}
+   const img=new Image();
+   img.onload=function(){canvas.width=img.width;canvas.height=img.height;ctx.drawImage(img,0,0);URL.revokeObjectURL(img.src);setStatus('Live screen • '+img.width+' × '+img.height);};
+   img.src=URL.createObjectURL(ev.data);
+ };
+ ws.onerror=function(){setStatus('Connection error. Check the Host address and LAN firewall.');};
+ ws.onclose=function(){disconnect();connectBtn.disabled=false;connectBtn.textContent='REQUEST CONNECTION';};
+});
+document.getElementById('disconnectBtn').addEventListener('click',disconnect);
+function send(obj){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify(obj));}
+function coords(e){const r=canvas.getBoundingClientRect();return{x:Math.max(0,Math.min(1,(e.clientX-r.left)/r.width)),y:Math.max(0,Math.min(1,(e.clientY-r.top)/r.height))};}
+canvas.addEventListener('mousemove',function(e){const now=Date.now();if(now-lastMove<70)return;lastMove=now;const p=coords(e);send({action:'move',x:p.x,y:p.y});});
+canvas.addEventListener('click',function(e){const p=coords(e);send({action:'click',x:p.x,y:p.y,button:'left'});canvas.focus();});
+canvas.tabIndex=0;
+window.addEventListener('keydown',function(e){
+ if(!connected || document.activeElement===codeEl)return;
+ const map={ ' ':'space','Escape':'esc','ArrowUp':'up','ArrowDown':'down','ArrowLeft':'left','ArrowRight':'right','Backspace':'backspace','Enter':'enter','Tab':'tab','Delete':'delete' };
+ let k=map[e.key]||e.key.toLowerCase();
+ if(/^[a-z0-9]$/.test(k)||['space','esc','up','down','left','right','backspace','enter','tab','delete','home','end','pageup','pagedown','shift','ctrl','alt','f1','f2','f3','f4','f5','f6','f7','f8','f9','f10','f11','f12'].includes(k)){
+   e.preventDefault();send({action:'key',key:k});
+ }
+});
+})();
+</script>
+</body>
+</html>
