@@ -1,0 +1,14 @@
+Mada Remote Web — Windows 7 x64 build kit
+
+This kit is configured to build a standalone MadaHost.exe using a Windows CI runner,
+Python 3.8.10 x64 and PyInstaller 5.13.2.
+
+Important:
+- This does not contain a precompiled EXE.
+- The build workflow must be run in GitHub Actions.
+- The output is built on Windows Server 2019, not directly on Windows 7.
+- Compatibility with a specific Windows 7 installation is not guaranteed until tested
+  on Windows 7 SP1 x64 with required system updates and runtime components.
+- The application is a LAN-only prototype using unencrypted HTTP/WebSocket.
+  Do not expose it to the public Internet or use it on untrusted networks.
+- Each remote session requires approval in the visible Host window.
